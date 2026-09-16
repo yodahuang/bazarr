@@ -49,11 +49,13 @@ const Table: FunctionComponent<Props> = ({ movie, profile, disabled }) => {
           language: code2,
           forced: toPython(forced),
           hi: toPython(hi),
+          content_type: item.content_type,
+          secondary_language: item.secondary_language,
         });
       }
 
       return list;
-    }, [code2, path, forced, hi]);
+    }, [code2, path, forced, hi, item.content_type, item.secondary_language]);
 
     if (movie === null) {
       return null;
@@ -75,6 +77,8 @@ const Table: FunctionComponent<Props> = ({ movie, profile, disabled }) => {
                 language: code2,
                 forced,
                 hi,
+                content_type: item.content_type,
+                secondary_language: item.secondary_language,
               },
             });
           }}
@@ -94,6 +98,8 @@ const Table: FunctionComponent<Props> = ({ movie, profile, disabled }) => {
                 forced,
                 hi,
                 path,
+                content_type: item.content_type,
+                secondary_language: item.secondary_language,
               },
             });
           } else if (action === "search") {

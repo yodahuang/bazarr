@@ -19,6 +19,7 @@ from app.jobs_queue import jobs_queue
 from app.event_handler import event_stream
 
 from ..download import generate_subtitles
+from ..requirements import requirement_from_token, format_requirement_token
 
 
 def movies_download_subtitles(no, job_id=None, job_sub_function=False):
@@ -46,14 +47,15 @@ def movies_download_subtitles(no, job_id=None, job_sub_function=False):
         .where(reduce(operator.and_, conditions))
     movie = database.execute(stmt).first()
 
-    previously_indexed_subtitles = get_subtitles(radarr_id=movie.radarrId)
-
     if not movie:
         logging.debug(f"BAZARR no movie with that radarrId can be found in database: {no}")
         jobs_queue.update_job_progress(job_id=job_id, progress_message="Movie not found in database.")
         return
-    elif not len(previously_indexed_subtitles) or \
-            any([not x['embedded_track_id'] for x in previously_indexed_subtitles if not x['path']]):
+
+    previously_indexed_subtitles = get_subtitles(radarr_id=movie.radarrId)
+
+    if not len(previously_indexed_subtitles) or \
+            any([x['embedded_track_id'] is None for x in previously_indexed_subtitles if not x['path']]):
         # subtitles indexing for this movie might be incomplete, we'll do it again
         store_subtitles_movie(no)
         movie = database.execute(stmt).first()
@@ -69,8 +71,9 @@ def movies_download_subtitles(no, job_id=None, job_sub_function=False):
         jobs_queue.update_job_progress(job_id=job_id, progress_message=f"Movie path doesn't exists: {moviePath}")
         raise OSError
 
-    if ast.literal_eval(movie.missing_subtitles):
-        count_movie = len(ast.literal_eval(movie.missing_subtitles))
+    missing_subtitles = ast.literal_eval(movie.missing_subtitles or '[]')
+    if missing_subtitles:
+        count_movie = len(missing_subtitles)
     else:
         count_movie = 0
 
@@ -80,37 +83,36 @@ def movies_download_subtitles(no, job_id=None, job_sub_function=False):
     else:
         audio_language = 'None'
 
-    languages = []
-
     jobs_queue.update_job_progress(job_id=job_id, progress_max=count_movie, progress_message=movie.title)
 
     providers_list = get_providers()
+    languages = [
+        requirement_from_token(language)
+        for language in missing_subtitles
+        if language is not None
+    ]
+    can_search = bool(providers_list) or any(
+        language.content_type == 'bilingual' for language in languages
+    )
 
     downloaded_count = 0
-    if providers_list:
-        for language in ast.literal_eval(movie.missing_subtitles):
-            if language is not None:
-                hi_ = "True" if language.endswith(':hi') else "False"
-                forced_ = "True" if language.endswith(':forced') else "False"
-                languages.append((language.split(":")[0], hi_, forced_))
-
-        if languages:
-            for result in generate_subtitles(moviePath,
-                                             languages,
-                                             audio_language,
-                                             str(movie.sceneName),
-                                             movie.title,
-                                             'movie',
-                                             movie.profileId,
-                                             check_if_still_required=True,
-                                             job_id=job_id):
-                if result:
-                    if isinstance(result, tuple) and len(result):
-                        result = result[0]
-                    store_subtitles_movie(no)
-                    history_log_movie(1, no, result)
-                    send_notifications_movie(no, result.message)
-                    downloaded_count += 1
+    if can_search:
+        for result in generate_subtitles(moviePath,
+                                         languages,
+                                         audio_language,
+                                         str(movie.sceneName),
+                                         movie.title,
+                                         'movie',
+                                         movie.profileId,
+                                         check_if_still_required=True,
+                                         job_id=job_id):
+            if result:
+                if isinstance(result, tuple) and len(result):
+                    result = result[0]
+                store_subtitles_movie(no)
+                history_log_movie(1, no, result)
+                send_notifications_movie(no, result.message)
+                downloaded_count += 1
         outcome_msg = (f"{downloaded_count} subtitle(s) downloaded"
                        if downloaded_count else "No subtitles found")
     else:
@@ -122,7 +124,8 @@ def movies_download_subtitles(no, job_id=None, job_sub_function=False):
     jobs_queue.update_job_name(job_id=job_id, new_job_name=f"Downloaded missing subtitles for {movie.title} ({movie.year})")
 
 
-def movie_download_specific_subtitles(radarr_id, language, hi, forced, job_id=None):
+def movie_download_specific_subtitles(radarr_id, language, hi, forced, job_id=None,
+                                      content_type="single", secondary_language=None):
     if not job_id:
         return jobs_queue.add_job_from_function("Searching subtitles", progress_max=1, is_progress=False)
 
@@ -147,12 +150,13 @@ def movie_download_specific_subtitles(radarr_id, language, hi, forced, job_id=No
 
     title = movieInfo.title
 
-    if hi == 'True':
-        language_str = f'{language}:hi'
-    elif forced == 'True':
-        language_str = f'{language}:forced'
-    else:
-        language_str = language
+    requirement_token = f"{language}:bilingual={secondary_language}" if content_type == "bilingual" else language
+    if forced == "True":
+        requirement_token += ":forced"
+    elif hi == "True":
+        requirement_token += ":hi"
+    requirement = requirement_from_token(requirement_token)
+    language_str = format_requirement_token(requirement)
 
     jobs_queue.update_job_name(job_id=job_id, new_job_name=f"Searching {language_str.upper()} for {title}")
 
@@ -163,7 +167,7 @@ def movie_download_specific_subtitles(radarr_id, language, hi, forced, job_id=No
         audio_language = None
 
     try:
-        result = list(generate_subtitles(moviePath, [(language, hi, forced)], audio_language,
+        result = list(generate_subtitles(moviePath, [requirement], audio_language,
                                          sceneName, title, 'movie', profile_id=get_profile_id(movie_id=radarr_id),
                                          job_id=job_id))
         if isinstance(result, list) and len(result):

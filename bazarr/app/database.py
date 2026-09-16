@@ -191,6 +191,12 @@ class TableEpisodesSubtitles(Base):
 
     id = mapped_column(Integer, primary_key=True)
     language = mapped_column(Text, nullable=False)
+    content_type = mapped_column(Text, nullable=False, server_default='single')
+    # Empty string is the storage sentinel for a single-language subtitle.
+    # Keeping this non-null is important because PostgreSQL treats NULL values
+    # as distinct in a unique constraint, which would make the upserts below
+    # unable to find an existing single-language row.
+    secondary_language = mapped_column(Text, nullable=False, server_default='')
     hi = mapped_column(Boolean, nullable=False)
     forced = mapped_column(Boolean, nullable=False)
     path = mapped_column(Text, nullable=True)
@@ -304,6 +310,8 @@ class TableMoviesSubtitles(Base):
 
     id = mapped_column(Integer, primary_key=True)
     language = mapped_column(Text, nullable=False)
+    content_type = mapped_column(Text, nullable=False, server_default='single')
+    secondary_language = mapped_column(Text, nullable=False, server_default='')
     hi = mapped_column(Boolean, nullable=False)
     forced = mapped_column(Boolean, nullable=False)
     path = mapped_column(Text, nullable=True)
@@ -475,11 +483,13 @@ def get_exclusion_clause(exclusion_type):
 
 @region.cache_on_arguments()
 def update_profile_id_list():
+    from subtitles.requirements import normalize_profile_items
+
     return [{
         'profileId': x.profileId,
         'name': x.name,
         'cutoff': x.cutoff,
-        'items': json.loads(x.items),
+        'items': normalize_profile_items(json.loads(x.items)),
         'mustContain': ast.literal_eval(x.mustContain) if x.mustContain else [],
         'mustNotContain': ast.literal_eval(x.mustNotContain) if x.mustNotContain else [],
         'originalFormat': x.originalFormat,
@@ -609,6 +619,8 @@ def convert_list_to_clause(arr: list):
 
 
 def upgrade_languages_profile_values():
+    from subtitles.requirements import normalize_profile_items
+
     for languages_profile in (database.execute(
             select(
                 TableLanguagesProfiles.profileId,
@@ -621,18 +633,7 @@ def upgrade_languages_profile_values():
                 TableLanguagesProfiles.tag)
             ))\
             .all():
-        items = json.loads(languages_profile.items)
-        for language in items:
-            if language['hi'] == "only":
-                language['hi'] = "True"
-            elif language['hi'] in ["also", "never"]:
-                language['hi'] = "False"
-
-            if 'audio_exclude' not in language:
-                language['audio_exclude'] = "False"
-
-            if 'audio_only_include' not in language:
-                language['audio_only_include'] = "False"
+        items = normalize_profile_items(json.loads(languages_profile.items))
         database.execute(
             update(TableLanguagesProfiles)
             .values({"items": json.dumps(items)})
@@ -693,6 +694,8 @@ def get_subtitles(sonarr_episode_id: int = None, radarr_id: int = None) -> List[
         episodes_subtitles = database.execute(
             select(TableEpisodesSubtitles.path,
                    TableEpisodesSubtitles.language,
+                   TableEpisodesSubtitles.content_type,
+                   TableEpisodesSubtitles.secondary_language,
                    TableEpisodesSubtitles.forced,
                    TableEpisodesSubtitles.hi,
                    TableEpisodesSubtitles.size,
@@ -706,6 +709,8 @@ def get_subtitles(sonarr_episode_id: int = None, radarr_id: int = None) -> List[
                  "name": language_from_alpha2(episode_subtitles.language),
                  "code2": episode_subtitles.language,
                  "code3": alpha3_from_alpha2(episode_subtitles.language),
+                 "content_type": episode_subtitles.content_type or "single",
+                 "secondary_language": episode_subtitles.secondary_language or None,
                  "forced": episode_subtitles.forced,
                  "hi": episode_subtitles.hi,
                  "file_size": episode_subtitles.size,
@@ -715,6 +720,8 @@ def get_subtitles(sonarr_episode_id: int = None, radarr_id: int = None) -> List[
         movies_subtitles = database.execute(
             select(TableMoviesSubtitles.path,
                    TableMoviesSubtitles.language,
+                   TableMoviesSubtitles.content_type,
+                   TableMoviesSubtitles.secondary_language,
                    TableMoviesSubtitles.forced,
                    TableMoviesSubtitles.hi,
                    TableMoviesSubtitles.size,
@@ -728,6 +735,8 @@ def get_subtitles(sonarr_episode_id: int = None, radarr_id: int = None) -> List[
                  "name": language_from_alpha2(movie_subtitles.language),
                  "code2": movie_subtitles.language,
                  "code3": alpha3_from_alpha2(movie_subtitles.language),
+                 "content_type": movie_subtitles.content_type or "single",
+                 "secondary_language": movie_subtitles.secondary_language or None,
                  "forced": movie_subtitles.forced,
                  "hi": movie_subtitles.hi,
                  "file_size": movie_subtitles.size,

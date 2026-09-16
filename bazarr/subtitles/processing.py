@@ -7,7 +7,8 @@ from app.config import settings, sync_checker as _defaul_sync_checker
 from utilities.path_mappings import path_mappings
 from utilities.post_processing import pp_replace, set_chmod
 from utilities.autopulse_webhook import call_external_webhook
-from languages.get_languages import alpha2_from_alpha3, alpha2_from_language, alpha3_from_language, language_from_alpha3
+from languages.get_languages import (alpha2_from_alpha3, alpha2_from_language, alpha3_from_alpha2,
+                                     alpha3_from_language, language_from_alpha3)
 from app.database import TableShows, TableEpisodes, TableMovies, database, select
 from utilities.analytics import event_tracker
 from radarr.notify import notify_radarr
@@ -19,11 +20,13 @@ from app.event_handler import event_stream
 from .utils import _get_download_code3
 from .post_processing import postprocessing
 from .utils import _get_scores
+from .requirements import SubtitleRequirement
 
 
 class ProcessSubtitlesResult:
     def __init__(self, message, reversed_path, downloaded_language_code2, downloaded_provider, score, forced,
-                 subtitle_id, reversed_subtitles_path, hearing_impaired, matched=None, not_matched=None):
+                 subtitle_id, reversed_subtitles_path, hearing_impaired, matched=None, not_matched=None,
+                 content_type="single", secondary_language=None):
         self.message = message
         self.path = reversed_path
         self.provider = downloaded_provider
@@ -33,23 +36,40 @@ class ProcessSubtitlesResult:
         self.matched = matched
         self.not_matched = not_matched
 
-        if hearing_impaired:
-            self.language_code = f"{downloaded_language_code2}:hi"
-        elif forced:
-            self.language_code = f"{downloaded_language_code2}:forced"
-        else:
-            self.language_code = downloaded_language_code2
+        language = str(downloaded_language_code2).split(":", 1)[0]
+        def as_bool(value):
+            if isinstance(value, bool):
+                return value
+            return str(value).lower() in {"true", "1", "yes", "only"}
+
+        forced = as_bool(forced) if forced is not None else str(downloaded_language_code2).endswith(":forced")
+        hearing_impaired = as_bool(hearing_impaired) if hearing_impaired is not None else \
+            str(downloaded_language_code2).endswith(":hi")
+        self.content_type = content_type or "single"
+        self.secondary_language = secondary_language
+        self.language_code = SubtitleRequirement(
+            language=language,
+            forced=forced,
+            hi=hearing_impaired,
+            content_type=self.content_type,
+            secondary_language=secondary_language,
+        ).token
 
 
 def process_subtitle(subtitle, media_type, audio_language, path, max_score, is_upgrade=False, is_manual=False,
-                     job_id=None):
+                     job_id=None, content_type=None, secondary_language=None, primary_language=None):
     use_postprocessing = settings.general.use_postprocessing
     postprocessing_cmd = settings.general.postprocessing_cmd
 
     downloaded_provider = subtitle.provider_name
     uploader = subtitle.uploader
     release_info = subtitle.release_info
-    downloaded_language_code3 = _get_download_code3(subtitle)
+    if primary_language:
+        primary_language = str(primary_language).strip().lower()
+        downloaded_language_code3 = alpha3_from_alpha2(primary_language)
+    else:
+        downloaded_language_code3 = None
+    downloaded_language_code3 = downloaded_language_code3 or _get_download_code3(subtitle)
 
     downloaded_language = language_from_alpha3(downloaded_language_code3)
     downloaded_language_code2 = alpha2_from_alpha3(downloaded_language_code3)
@@ -57,6 +77,8 @@ def process_subtitle(subtitle, media_type, audio_language, path, max_score, is_u
     audio_language_code3 = alpha3_from_language(audio_language)
     downloaded_path = subtitle.storage_path
     subtitle_id = subtitle.id
+    content_type = content_type or getattr(subtitle, "content_type", "single")
+    secondary_language = secondary_language or getattr(subtitle, "secondary_language", None)
     if subtitle.language.hi:
         modifier_string = " HI"
     elif subtitle.language.forced:
@@ -72,6 +94,9 @@ def process_subtitle(subtitle, media_type, audio_language, path, max_score, is_u
         action = "downloaded"
 
     percent_score = round(subtitle.score * 100 / max_score, 2)
+    if content_type == "bilingual" and secondary_language:
+        secondary_name = language_from_alpha2(secondary_language) or secondary_language
+        downloaded_language = f"{downloaded_language} + {secondary_name}"
     message = (f"{downloaded_language}{modifier_string} subtitles {action} from {downloaded_provider} with a score of "
                f"{percent_score}%.")
 
@@ -197,7 +222,9 @@ def process_subtitle(subtitle, media_type, audio_language, path, max_score, is_u
                                   reversed_subtitles_path=reversed_subtitles_path,
                                   hearing_impaired=subtitle.language.hi,
                                   matched=list(subtitle.matches or []),
-                                  not_matched=_get_not_matched(subtitle, media_type)),
+                                  not_matched=_get_not_matched(subtitle, media_type),
+                                  content_type=content_type,
+                                  secondary_language=secondary_language),
 
 
 def _get_not_matched(subtitle, media_type):

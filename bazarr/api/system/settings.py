@@ -56,11 +56,14 @@ class SystemSettings(Resource):
 
         languages_profiles = request.form.get('languages-profiles')
         if languages_profiles:
+            from subtitles.requirements import normalize_profile_items
+
             existing_ids = database.execute(
                 select(TableLanguagesProfiles.profileId))\
                 .all()
             existing = [x.profileId for x in existing_ids]
             for item in json.loads(languages_profiles):
+                item['items'] = normalize_profile_items(item['items'])
                 if item['profileId'] in existing:
                     # Update existing profiles
                     database.execute(

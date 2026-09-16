@@ -10,6 +10,7 @@ from app.config import settings, base_url
 from languages.get_languages import language_from_alpha2, alpha3_from_alpha2
 from app.database import get_audio_profile_languages, get_desired_languages, get_subtitles
 from utilities.path_mappings import path_mappings
+from subtitles.requirements import requirement_from_token
 
 None_Keys = ['null', 'undefined', '', None]
 
@@ -70,19 +71,16 @@ def postprocess(item):
     if item.get('missing_subtitles'):
         item['missing_subtitles'] = ast.literal_eval(item['missing_subtitles'])
         for i, subs in enumerate(item['missing_subtitles']):
-            language = subs.split(':')
-            item['missing_subtitles'][i] = {"name": language_from_alpha2(language[0]),
-                                            "code2": language[0],
-                                            "code3": alpha3_from_alpha2(language[0]),
-                                            "forced": False,
-                                            "hi": False}
-            if len(language) > 1:
-                item['missing_subtitles'][i].update(
-                    {
-                        "forced": language[1] == 'forced',
-                        "hi": language[1] == 'hi',
-                    }
-                )
+            requirement = requirement_from_token(subs)
+            item['missing_subtitles'][i] = {
+                "name": language_from_alpha2(requirement.language),
+                "code2": requirement.language,
+                "code3": alpha3_from_alpha2(requirement.language),
+                "content_type": requirement.content_type,
+                "secondary_language": requirement.secondary_language,
+                "forced": requirement.forced,
+                "hi": requirement.hi,
+            }
     else:
         item['missing_subtitles'] = []
 
@@ -104,13 +102,15 @@ def postprocess(item):
         if item['language'] == 'None':
             item['language'] = None
         if item['language'] is not None:
-            splitted_language = item['language'].split(':')
+            requirement = requirement_from_token(item['language'])
             item['language'] = {
-                "name": language_from_alpha2(splitted_language[0]),
-                "code2": splitted_language[0],
-                "code3": alpha3_from_alpha2(splitted_language[0]),
-                "forced": bool(item['language'].endswith(':forced')),
-                "hi": bool(item['language'].endswith(':hi')),
+                "name": language_from_alpha2(requirement.language),
+                "code2": requirement.language,
+                "code3": alpha3_from_alpha2(requirement.language),
+                "content_type": requirement.content_type,
+                "secondary_language": requirement.secondary_language,
+                "forced": requirement.forced,
+                "hi": requirement.hi,
             }
 
     if item.get('path'):

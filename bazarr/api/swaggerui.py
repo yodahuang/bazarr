@@ -13,6 +13,8 @@ subtitles_model = {
         "name": fields.String(),
         "code2": fields.String(),
         "code3": fields.String(),
+        "content_type": fields.String(),
+        "secondary_language": fields.String(),
         "path": fields.String(),
         "forced": fields.Boolean(),
         "hi": fields.Boolean(),
@@ -24,6 +26,8 @@ subtitles_language_model = {
         "name": fields.String(),
         "code2": fields.String(),
         "code3": fields.String(),
+        "content_type": fields.String(),
+        "secondary_language": fields.String(),
         "forced": fields.Boolean(),
         "hi": fields.Boolean()
     }

@@ -28,6 +28,9 @@ const LanguageText: FunctionComponent<LanguageTextProps> = ({
     }
 
     let res = lang;
+    if (value.content_type === "bilingual" && value.secondary_language) {
+      res += ` + ${value.secondary_language}`;
+    }
     if (value.hi) {
       res += hi;
     } else if (value.forced) {
@@ -51,7 +54,17 @@ const LanguageList: FunctionComponent<LanguageListProps> = ({ value }) => {
   return (
     <Group gap="xs">
       {value.map((v) => (
-        <Badge key={BuildKey(v.code2, v.code2, v.hi)}>{v.name}</Badge>
+        <Badge
+          key={BuildKey(
+            v.code2,
+            v.secondary_language ?? "",
+            v.content_type ?? "single",
+            v.hi,
+            v.forced,
+          )}
+        >
+          <LanguageText value={v} long></LanguageText>
+        </Badge>
       ))}
     </Group>
   );

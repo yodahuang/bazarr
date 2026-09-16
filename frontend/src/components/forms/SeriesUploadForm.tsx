@@ -63,7 +63,13 @@ const validator = (file: SubtitleFile): SubtitleValidateResult => {
   } else {
     const { subtitles } = file.episode;
     const existing = subtitles.find(
-      (v) => v.code2 === file.language?.code2 && isString(v.path),
+      (v) =>
+        v.code2 === file.language?.code2 &&
+        (v.content_type ?? "single") ===
+          (file.language?.content_type ?? "single") &&
+        (v.secondary_language ?? null) ===
+          (file.language?.secondary_language ?? null) &&
+        isString(v.path),
     );
     if (existing !== undefined) {
       return {
@@ -100,9 +106,18 @@ const SeriesUploadForm: FunctionComponent<Props> = ({
   const profile = useLanguageProfileBy(series.profileId);
   const languages = useProfileItemsToLanguages(profile);
   const languageOptions = useSelectorOptions(
-    uniqBy(languages, "code2"),
-    (v) => v.name,
-    (v) => v.code2,
+    uniqBy(
+      languages,
+      (v) =>
+        `${v.code2}:${v.content_type ?? "single"}:${v.secondary_language ?? ""}`,
+    ),
+    (v) =>
+      v.name +
+      (v.content_type === "bilingual" && v.secondary_language
+        ? ` + ${v.secondary_language}`
+        : ""),
+    (v) =>
+      `${v.code2}:${v.content_type ?? "single"}:${v.secondary_language ?? ""}`,
   );
 
   const defaultLanguage = useMemo(
@@ -381,6 +396,11 @@ const SeriesUploadForm: FunctionComponent<Props> = ({
               language: code2,
               hi,
               forced,
+              content_type: language.content_type ?? "single",
+              secondary_language:
+                language.content_type === "bilingual"
+                  ? language.secondary_language
+                  : null,
             },
           });
         }

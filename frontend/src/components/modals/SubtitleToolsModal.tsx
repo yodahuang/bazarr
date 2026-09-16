@@ -254,6 +254,8 @@ const SubtitleToolView: FunctionComponent<SubtitleToolViewProps> = ({
                 name,
                 hi: toPython(v.hi),
                 forced: toPython(v.forced),
+                content_type: v.content_type,
+                secondary_language: v.secondary_language,
                 isMovie: isMovieItem,
               },
             ];
@@ -423,6 +425,8 @@ const SubtitleToolView: FunctionComponent<SubtitleToolViewProps> = ({
                       hi: fromPython(selection.hi),
                       forced: fromPython(selection.forced),
                       path: selection.path,
+                      content_type: selection.content_type,
+                      secondary_language: selection.secondary_language,
                     },
                     radarrId: 0,
                     seriesId: 0,

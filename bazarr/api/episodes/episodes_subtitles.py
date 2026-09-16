@@ -30,6 +30,8 @@ class EpisodesSubtitles(Resource):
     patch_request_parser.add_argument('language', type=str, required=True, help='Language code2')
     patch_request_parser.add_argument('forced', type=str, required=True, help='Forced true/false as string')
     patch_request_parser.add_argument('hi', type=str, required=True, help='HI true/false as string')
+    patch_request_parser.add_argument('content_type', type=str, required=False, default='single')
+    patch_request_parser.add_argument('secondary_language', type=str, required=False, default=None)
 
     @authenticate
     @api_ns_episodes_subtitles.doc(parser=patch_request_parser)
@@ -45,7 +47,9 @@ class EpisodesSubtitles(Resource):
         episode_download_specific_subtitles(sonarr_series_id=args.get('seriesid'),
                                             sonarr_episode_id=args.get('episodeid'),
                                             language=args.get('language'), hi=args.get('hi').capitalize(),
-                                            forced=args.get('forced').capitalize(), job_id=None)
+                                            forced=args.get('forced').capitalize(), job_id=None,
+                                            content_type=args.get('content_type'),
+                                            secondary_language=args.get('secondary_language'))
 
         return '', 204
 
@@ -55,6 +59,8 @@ class EpisodesSubtitles(Resource):
     post_request_parser.add_argument('language', type=str, required=True, help='Language code2')
     post_request_parser.add_argument('forced', type=str, required=True, help='Forced true/false as string')
     post_request_parser.add_argument('hi', type=str, required=True, help='HI true/false as string')
+    post_request_parser.add_argument('content_type', type=str, required=False, default='single')
+    post_request_parser.add_argument('secondary_language', type=str, required=False, default=None)
     post_request_parser.add_argument('file', type=FileStorage, location='files', required=True,
                                      help='Subtitles file as file upload object')
 
@@ -102,7 +108,9 @@ class EpisodesSubtitles(Resource):
                                filename=uploaded_file.filename,
                                audio_language=episodeInfo.audio_language,
                                sonarrSeriesId=sonarrSeriesId,
-                               sonarrEpisodeId=sonarrEpisodeId)
+                               sonarrEpisodeId=sonarrEpisodeId,
+                               content_type=args.get('content_type'),
+                               secondary_language=args.get('secondary_language'))
 
         return '', 204
 
@@ -112,6 +120,8 @@ class EpisodesSubtitles(Resource):
     delete_request_parser.add_argument('language', type=str, required=True, help='Language code2')
     delete_request_parser.add_argument('forced', type=str, required=True, help='Forced true/false as string')
     delete_request_parser.add_argument('hi', type=str, required=True, help='HI true/false as string')
+    delete_request_parser.add_argument('content_type', type=str, required=False, default='single')
+    delete_request_parser.add_argument('secondary_language', type=str, required=False, default=None)
     delete_request_parser.add_argument('path', type=str, required=True, help='Path of the subtitles file')
 
     @authenticate
@@ -146,6 +156,8 @@ class EpisodesSubtitles(Resource):
                             language=language,
                             forced=forced,
                             hi=hi,
+                            content_type=args.get('content_type'),
+                            secondary_language=args.get('secondary_language'),
                             media_path=episodePath,
                             subtitles_path=subtitlesPath,
                             sonarr_series_id=sonarrSeriesId,

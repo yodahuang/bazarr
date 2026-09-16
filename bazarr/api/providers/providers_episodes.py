@@ -27,6 +27,8 @@ class ProviderEpisodes(Resource):
         'forced': fields.String(),
         'hearing_impaired': fields.String(),
         'language': fields.String(),
+        'content_type': fields.String(),
+        'secondary_language': fields.String(),
         'matches': fields.List(fields.String),
         'original_format': fields.String(),
         'orig_score': fields.Integer(),
@@ -63,7 +65,7 @@ class ProviderEpisodes(Resource):
         if not episodeInfo:
             return 'Episode not found', 404
         elif not len(previously_indexed_subtitles) or \
-                any([not x['embedded_track_id'] for x in previously_indexed_subtitles if not x['path']]):
+                any([x['embedded_track_id'] is None for x in previously_indexed_subtitles if not x['path']]):
             # subtitles indexing for this episode might be incomplete, we'll do it again
             store_subtitles(sonarrEpisodeId)
             episodeInfo = database.execute(stmt).first()
@@ -97,6 +99,9 @@ class ProviderEpisodes(Resource):
                                      help='Use original subtitles format from ["True", "False"]')
     post_request_parser.add_argument('provider', type=str, required=True, help='Provider name')
     post_request_parser.add_argument('subtitle', type=str, required=True, help='Subtitle ID as returned by GET')
+    post_request_parser.add_argument('language', type=str, required=False, default=None)
+    post_request_parser.add_argument('content_type', type=str, required=False, default='single')
+    post_request_parser.add_argument('secondary_language', type=str, required=False, default=None)
 
     @authenticate
     @api_ns_providers_episodes.doc(parser=post_request_parser)
@@ -115,6 +120,9 @@ class ProviderEpisodes(Resource):
                                                     use_original_format=args.get('original_format').capitalize(),
                                                     selected_provider=args.get('provider'),
                                                     subtitle=args.get('subtitle'),
+                                                    language=args.get('language'),
+                                                    content_type=args.get('content_type'),
+                                                    secondary_language=args.get('secondary_language'),
                                                     job_id=None)
 
         return '', 204

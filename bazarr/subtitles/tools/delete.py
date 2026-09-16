@@ -20,10 +20,11 @@ from sonarr.notify import notify_sonarr
 from radarr.notify import notify_radarr
 from plex.operations import plex_refresh_item
 from jellyfin.operations import jellyfin_refresh_item
+from subtitles.requirements import SubtitleRequirement
 
 
 def delete_subtitles(media_type, language, forced, hi, media_path, subtitles_path, sonarr_series_id=None,
-                     sonarr_episode_id=None, radarr_id=None):
+                     sonarr_episode_id=None, radarr_id=None, content_type="single", secondary_language=None):
     if not subtitles_path:
         logging.error('No subtitles to delete.')
         return False
@@ -40,6 +41,17 @@ def delete_subtitles(media_type, language, forced, hi, media_path, subtitles_pat
     elif forced in [True, 'true', 'True']:
         language_log += ':forced'
         language_string += ' forced'
+
+    if content_type == "bilingual":
+        requirement = SubtitleRequirement(
+            language=language,
+            forced=forced,
+            hi=hi,
+            content_type="bilingual",
+            secondary_language=secondary_language,
+        )
+        language_log = requirement.token
+        language_string = f"{language_string} + {language_from_alpha2(secondary_language) or secondary_language}"
 
     if media_type == 'series':
         pr = path_mappings.path_replace
@@ -65,7 +77,9 @@ def delete_subtitles(media_type, language, forced, hi, media_path, subtitles_pat
                                     forced=None,
                                     subtitle_id=None,
                                     reversed_subtitles_path=prr(subtitles_path),
-                                    hearing_impaired=None)
+                                    hearing_impaired=None,
+                                    content_type=content_type,
+                                    secondary_language=secondary_language)
 
     if media_type == 'series':
         try:

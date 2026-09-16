@@ -52,6 +52,8 @@ class ZimukuSubtitle(Subtitle):
         super(ZimukuSubtitle, self).__init__(language, page_link=page_link)
         self.version = version
         self.release_info = version
+        self.content_type = "single"
+        self.secondary_language = None
         self.hearing_impaired = False
         self.encoding = "utf-8"
         self.session = session
@@ -174,7 +176,8 @@ class ZimukuProvider(Provider):
         subs = []
         for sub in subs_body.find_all("tr"):
             a = sub.find("a")
-            name = _extract_name(a.text)
+            raw_name = a.text
+            name = _extract_name(raw_name)
             name = os.path.splitext(name)[
                 0
             ]  # remove ext because it can be an archive type
@@ -212,9 +215,11 @@ class ZimukuProvider(Provider):
             # with multiple languages to ensure each language is identified as its own subtitle since they are the same archive file
             # but will have its own file when downloaded and extracted.
             for language in language_list:
-                subs.append(
-                    self.subtitle_class(language, sub_page_link, name, backup_session, year)
-                )
+                subtitle = self.subtitle_class(language, sub_page_link, name, backup_session, year)
+                if _is_bilingual_subtitle_name(raw_name) or _is_bilingual_subtitle_name(name):
+                    subtitle.content_type = "bilingual"
+                    subtitle.secondary_language = "en"
+                subs.append(subtitle)
 
         return subs
 
@@ -351,7 +356,7 @@ class ZimukuProvider(Provider):
                 )
                 return
             archive = rarfile.RarFile(archive_stream)
-            subtitle_content = _get_subtitle_from_archive(archive)
+            subtitle_content, selected_name = _get_subtitle_from_archive(archive, return_name=True)
         elif zipfile.is_zipfile(archive_stream):
             logger.debug("Identified zip archive")
             if ".zip" not in filename:
@@ -360,7 +365,7 @@ class ZimukuProvider(Provider):
                 )
                 return
             archive = zipfile.ZipFile(archive_stream)
-            subtitle_content = _get_subtitle_from_archive(archive)
+            subtitle_content, selected_name = _get_subtitle_from_archive(archive, return_name=True)
         else:
             is_sub = ""
             for sub_ext in SUBTITLE_EXTENSIONS:
@@ -374,41 +379,72 @@ class ZimukuProvider(Provider):
                 return
             logger.debug("Identified {} file".format(is_sub))
             subtitle_content = r.content
+            selected_name = filename
 
         if subtitle_content:
+            if _is_bilingual_subtitle_name(selected_name):
+                subtitle.content_type = "bilingual"
+                subtitle.secondary_language = "en"
             subtitle.content = fix_line_ending(subtitle_content)
         else:
             logger.debug("Could not extract subtitle from %r", archive)
 
 
-def _get_subtitle_from_archive(archive):
+def _get_subtitle_from_archive(archive, return_name=False):
     extract_subname, max_score = "", -1
 
     for subname in archive.namelist():
+        subname_lower = subname.casefold()
         # discard hidden files
         if os.path.split(subname)[-1].startswith("."):
             continue
 
         # discard non-subtitle files
-        if not subname.lower().endswith(SUBTITLE_EXTENSIONS):
+        if not subname_lower.endswith(SUBTITLE_EXTENSIONS):
             continue
 
         # prefer ass/ssa/srt subtitles with double languages or simplified/traditional chinese
-        score = ("ass" in subname or "ssa" in subname or "srt" in subname) * 1
-        if "简体" in subname or "chs" in subname or ".gb." in subname:
+        score = ("ass" in subname_lower or "ssa" in subname_lower or "srt" in subname_lower) * 1
+        if "简体" in subname_lower or "chs" in subname_lower or ".gb." in subname_lower:
             score += 2
-        if "繁体" in subname or "cht" in subname or ".big5." in subname:
+        if "繁体" in subname_lower or "繁體" in subname_lower or "cht" in subname_lower or ".big5." in subname_lower:
             score += 2
-        if "chs.eng" in subname or "chs&eng" in subname or "cht.eng" in subname or "cht&eng" in subname:
+        if "chs.eng" in subname_lower or "chs&eng" in subname_lower or "cht.eng" in subname_lower or "cht&eng" in subname_lower:
             score += 2
-        if "中英" in subname or "简英" in subname or "繁英" in subname or "双语" in subname or "简体&英文" in subname or "繁体&英文" in subname:
+        if _is_bilingual_subtitle_name(subname):
             score += 4
         logger.debug("subtitle {}, score: {}".format(subname, score))
         if score > max_score:
             max_score = score
             extract_subname = subname
 
-    return archive.read(extract_subname) if max_score != -1 else None
+    if max_score == -1:
+        return (None, None) if return_name else None
+
+    content = archive.read(extract_subname)
+    return (content, extract_subname) if return_name else content
+
+
+def _is_bilingual_subtitle_name(name):
+    """Return whether a downloaded Zimuku member is a Chinese-English pair."""
+
+    name = str(name or "").casefold()
+    # Do not turn an explicitly named Chinese-Japanese/French/etc. release
+    # into a Chinese-English result merely because it also contains the
+    # generic ``双语`` marker.  Zimuku's language list is Chinese-only, so the
+    # English side is still the safe default for an unqualified marker.
+    if any(marker in name for marker in (
+            "日中", "中日", "简日", "簡日", "繁日", "中韩", "中韓", "中法", "中德", "中俄", "中西")):
+        return False
+
+    if any(marker in name for marker in (
+            "bilingual", "dual language", "dual-language", "双语", "雙語", "中英", "简英", "簡英", "繁英",
+            "中文+英文", "简体&英文", "繁体&英文")):
+        return True
+
+    chinese = r"(?:chs|cht|zhs|zht|zho|chi|zh(?:-[^._&+\- ]+)?)"
+    english = r"(?:eng|en|english|英文|英语)"
+    return bool(re.search(rf"(?:{chinese}[^a-z一-鿿]+{english}|{english}[^a-z一-鿿]+{chinese})", name))
 
 
 def _extract_name(name):

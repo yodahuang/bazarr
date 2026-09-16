@@ -35,6 +35,8 @@ const defaultCutoffOptions: SelectorOption<Language.ProfileItem>[] = [
       forced: "False",
       hi: "False",
       language: "any",
+      content_type: "single",
+      secondary_language: null,
     },
   },
 ];
@@ -51,6 +53,10 @@ const subtitlesTypeOptions: SelectorOption<string>[] = [
   {
     label: "Forced (foreign part only)",
     value: "forced",
+  },
+  {
+    label: "Bilingual",
+    value: "bilingual",
   },
 ];
 
@@ -97,8 +103,15 @@ const ProfileEditForm: FunctionComponent<Props> = ({
         return /^[a-z_0-9-]+$/.test(value);
       }, "Only lowercase alphanumeric characters, underscores (_) and hyphens (-) are allowed"),
       items: FormUtils.validation(
-        (value: Language.ProfileItem[]) => value.length > 0,
-        "Must contain at least 1 language",
+        (value: Language.ProfileItem[]) =>
+          value.length > 0 &&
+          value.every(
+            (item) =>
+              item.content_type !== "bilingual" ||
+              (Boolean(item.secondary_language) &&
+                item.secondary_language !== item.language),
+          ),
+        "Must contain at least 1 language and every bilingual item needs a different secondary language",
       ),
     },
   });
@@ -110,8 +123,12 @@ const ProfileEditForm: FunctionComponent<Props> = ({
     (v) => {
       const suffix =
         v.hi === "True" ? ":hi" : v.forced === "True" ? ":forced" : "";
+      const language =
+        v.content_type === "bilingual" && v.secondary_language
+          ? `${v.language} + ${v.secondary_language}`
+          : v.language;
 
-      return v.language + suffix;
+      return language + suffix;
     },
     (v) => String(v.id),
   );
@@ -165,6 +182,8 @@ const ProfileEditForm: FunctionComponent<Props> = ({
         audio_only_include: "False",
         hi: "False",
         forced: "False",
+        content_type: "single",
+        secondary_language: null,
       };
 
       const list = [...form.values.items, item];
@@ -199,14 +218,16 @@ const ProfileEditForm: FunctionComponent<Props> = ({
   const SubtitleTypeCell = React.memo(
     ({ item, index }: { item: Language.ProfileItem; index: number }) => {
       const selectValue = useMemo(() => {
-        if (item.forced === "True") {
+        if (item.content_type === "bilingual") {
+          return "bilingual";
+        } else if (item.forced === "True") {
           return "forced";
         } else if (item.hi === "True") {
           return "hi";
         } else {
           return "normal";
         }
-      }, [item.forced, item.hi]);
+      }, [item.content_type, item.forced, item.hi]);
 
       return (
         <Select
@@ -216,12 +237,53 @@ const ProfileEditForm: FunctionComponent<Props> = ({
             if (value) {
               action.mutate(index, {
                 ...item,
+                content_type: value === "bilingual" ? "bilingual" : "single",
+                secondary_language:
+                  value === "bilingual" ? item.secondary_language : null,
                 hi: value === "hi" ? "True" : "False",
                 forced: value === "forced" ? "True" : "False",
               });
             }
           }}
         ></Select>
+      );
+    },
+  );
+
+  const SecondaryLanguageCell = React.memo(
+    ({ item, index }: { item: Language.ProfileItem; index: number }) => {
+      const secondaryLanguageOptions = useMemo(
+        () =>
+          languageOptions.options.filter(
+            (option) => option.value.code2 !== item.language,
+          ),
+        [item.language, languageOptions.options],
+      );
+      const secondaryCode = useMemo(
+        () =>
+          secondaryLanguageOptions.find(
+            (l) => l.value.code2 === item.secondary_language,
+          )?.value ?? null,
+        [item.secondary_language, secondaryLanguageOptions],
+      );
+
+      return (
+        <Selector
+          {...languageOptions}
+          options={secondaryLanguageOptions}
+          clearable
+          className="table-select"
+          disabled={item.content_type !== "bilingual"}
+          placeholder="Secondary"
+          value={secondaryCode}
+          onChange={(value) => {
+            action.mutate(index, {
+              ...item,
+              content_type: "bilingual",
+              secondary_language: value?.code2 ?? null,
+            });
+          }}
+        ></Selector>
       );
     },
   );
@@ -280,6 +342,13 @@ const ProfileEditForm: FunctionComponent<Props> = ({
         },
       },
       {
+        header: "Secondary Language",
+        accessorKey: "secondary_language",
+        cell: ({ row: { original: item, index } }) => {
+          return <SecondaryLanguageCell item={item} index={index} />;
+        },
+      },
+      {
         header: "Search only when...",
         accessorKey: "audio_exclude",
         cell: ({ row: { original: item, index } }) => {
@@ -300,7 +369,13 @@ const ProfileEditForm: FunctionComponent<Props> = ({
         },
       },
     ],
-    [action, LanguageCell, SubtitleTypeCell, InclusionCell],
+    [
+      action,
+      LanguageCell,
+      SubtitleTypeCell,
+      SecondaryLanguageCell,
+      InclusionCell,
+    ],
   );
 
   return (

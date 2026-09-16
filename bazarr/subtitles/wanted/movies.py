@@ -20,6 +20,7 @@ from app.config import settings
 
 from ..adaptive_searching import is_search_active, updateFailedAttempts
 from ..download import generate_subtitles
+from ..requirements import requirement_from_token, has_bilingual_requirement_tokens
 
 
 def _wanted_movie(movie, providers_list, job_id=None):
@@ -34,9 +35,7 @@ def _wanted_movie(movie, providers_list, job_id=None):
 
     for language in ast.literal_eval(movie.missing_subtitles):
         if is_search_active(desired_language=language, attempt_string=movie.failedAttempts):
-            hi_ = "True" if language.endswith(':hi') else "False"
-            forced_ = "True" if language.endswith(':forced') else "False"
-            languages.append((language.split(":")[0], hi_, forced_))
+            languages.append(requirement_from_token(language))
             languages_to_stamp.append(language)
 
         else:
@@ -93,7 +92,7 @@ def wanted_download_subtitles_movie(radarr_id, job_id=None):
         logging.debug(f"BAZARR no movie with that radarrId can be found in database: {radarr_id}")
         return
     elif not len(previously_indexed_subtitles) or \
-            any([not x['embedded_track_id'] for x in previously_indexed_subtitles if not x['path']]):
+            any([x['embedded_track_id'] is None for x in previously_indexed_subtitles if not x['path']]):
         # subtitles indexing for this movie might be incomplete, we'll do it again
         store_subtitles_movie(radarr_id)
         movie = database.execute(stmt).first()
@@ -104,7 +103,10 @@ def wanted_download_subtitles_movie(radarr_id, job_id=None):
 
     providers_list = get_providers()
 
-    if providers_list:
+    can_compose_without_providers = has_bilingual_requirement_tokens(
+        ast.literal_eval(movie.missing_subtitles or '[]')
+    )
+    if providers_list or can_compose_without_providers:
         _wanted_movie(movie, providers_list, job_id=job_id)
     else:
         logging.info("BAZARR All providers are throttled")
@@ -138,7 +140,10 @@ def wanted_search_missing_subtitles_movies(job_id=None, wait_for_completion=Fals
         jobs_queue.update_job_progress(job_id=job_id, progress_value=i, progress_message=movie.title)
 
         providers = get_providers()
-        if providers:
+        can_compose_without_providers = has_bilingual_requirement_tokens(
+            ast.literal_eval(movie.missing_subtitles or '[]')
+        )
+        if providers or can_compose_without_providers:
             wanted_download_subtitles_movie(movie.radarrId, job_id=job_id)
 
             # make sure to override the progress value updated by the subtitles synchronization

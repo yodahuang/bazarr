@@ -46,6 +46,8 @@ const Table = forwardRef<TableInstance<Item.Episode> | null, Props>(
           language,
           hearing_impaired: hi,
           forced,
+          content_type,
+          secondary_language,
           provider,
           subtitle,
           original_format: originalFormat,
@@ -63,6 +65,8 @@ const Table = forwardRef<TableInstance<Item.Episode> | null, Props>(
             subtitle,
             // eslint-disable-next-line camelcase
             original_format: originalFormat,
+            content_type,
+            secondary_language,
           },
         });
       },

@@ -30,15 +30,19 @@ export function useProfileItemsToLanguages(profile?: Language.Profile) {
 
   return useMemo(
     () =>
-      profile?.items.map<Language.Info>(({ language: code, hi, forced }) => {
-        const name = data?.find((v) => v.code2 === code)?.name ?? "";
-        return {
-          hi: hi === "True",
-          forced: forced === "True",
-          code2: code,
-          name,
-        };
-      }) ?? [],
+      profile?.items.map<Language.Info>(
+        ({ language: code, hi, forced, content_type, secondary_language }) => {
+          const name = data?.find((v) => v.code2 === code)?.name ?? "";
+          return {
+            hi: hi === "True",
+            forced: forced === "True",
+            code2: code,
+            name,
+            content_type,
+            secondary_language,
+          };
+        },
+      ) ?? [],
     [data, profile?.items],
   );
 }

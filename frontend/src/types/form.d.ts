@@ -26,6 +26,8 @@ declare namespace FormType {
     language: string;
     hi: boolean;
     forced: boolean;
+    content_type?: "single" | "bilingual";
+    secondary_language?: string | null;
   }
 
   interface UploadSubtitle extends Subtitle {
@@ -43,6 +45,8 @@ declare namespace FormType {
     path: string;
     forced?: PythonBoolean;
     hi?: PythonBoolean;
+    content_type?: "single" | "bilingual";
+    secondary_language?: string | null;
     original_format?: PythonBoolean;
     reference?: string;
     max_offset_seconds?: string;
@@ -77,6 +81,8 @@ declare namespace FormType {
     language: string;
     hi: PythonBoolean;
     forced: PythonBoolean;
+    content_type?: "single" | "bilingual";
+    secondary_language?: string | null;
     provider: string;
     subtitle: unknown;
     original_format: PythonBoolean;

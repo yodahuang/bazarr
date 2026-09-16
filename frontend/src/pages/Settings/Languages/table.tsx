@@ -246,13 +246,22 @@ interface ItemProps {
 const ItemBadge: FunctionComponent<ItemProps> = ({ cutoff, item }) => {
   const text = useMemo(() => {
     let result = item.language;
+    if (item.content_type === "bilingual" && item.secondary_language) {
+      result += ` + ${item.secondary_language}`;
+    }
     if (item.hi === "True") {
       result += ":HI";
     } else if (item.forced === "True") {
       result += ":Forced";
     }
     return result;
-  }, [item.hi, item.forced, item.language]);
+  }, [
+    item.content_type,
+    item.secondary_language,
+    item.hi,
+    item.forced,
+    item.language,
+  ]);
   return (
     <Badge
       title={cutoff ? "Ignore others if this one is available" : undefined}

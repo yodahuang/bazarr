@@ -22,6 +22,8 @@ declare namespace Language {
     name: string;
     hi?: boolean;
     forced?: boolean;
+    content_type?: "single" | "bilingual";
+    secondary_language?: CodeType | null;
   }
 
   interface ProfileItem {
@@ -31,6 +33,8 @@ declare namespace Language {
     forced: PythonBoolean;
     hi: PythonBoolean;
     language: CodeType;
+    content_type?: "single" | "bilingual";
+    secondary_language?: CodeType | null;
   }
 
   interface Profile {
@@ -47,7 +51,10 @@ declare namespace Language {
 
 interface Subtitle {
   code2: Language.CodeType;
+  code3?: Language.CodeType;
   name: string;
+  content_type?: "single" | "bilingual";
+  secondary_language?: Language.CodeType | null;
   forced: boolean;
   hi: boolean;
   path: string | null | undefined; // TODO: FIX ME!!!!!!
@@ -370,6 +377,8 @@ interface SearchResultType {
   matches: string[];
   dont_matches: string[];
   language: string;
+  content_type?: "single" | "bilingual";
+  secondary_language?: Language.CodeType | null;
   forced: PythonBoolean;
   hearing_impaired: PythonBoolean;
   orig_score: number;

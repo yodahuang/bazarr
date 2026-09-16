@@ -20,6 +20,7 @@ from app.event_handler import event_stream
 from app.config import settings
 
 from ..download import generate_subtitles
+from ..requirements import requirement_from_token, format_requirement_token, has_bilingual_requirement_tokens
 
 
 def series_download_subtitles(no, job_id=None, job_sub_function=False):
@@ -66,7 +67,10 @@ def series_download_subtitles(no, job_id=None, job_sub_function=False):
 
             providers_list = get_providers()
             fallback_allowed = settings.general.use_whisper_fallback and settings.general.use_whisper_fallback_series
-            if providers_list:
+            can_compose_without_providers = has_bilingual_requirement_tokens(
+                ast.literal_eval(episode.missing_subtitles or '[]')
+            )
+            if providers_list or can_compose_without_providers:
                 episode_download_subtitles(no=episode.sonarrEpisodeId, job_id=job_id, job_sub_function=True,
                                            providers_list=providers_list, fallback_allowed=fallback_allowed)
             else:
@@ -108,14 +112,15 @@ def episode_download_subtitles(no, job_id=None, job_sub_function=False, provider
         .where(reduce(operator.and_, conditions))
     episode = database.execute(stmt).first()
 
-    previously_indexed_subtitles = get_subtitles(sonarr_episode_id=episode.sonarrEpisodeId)
-
     if not episode:
         logging.debug("BAZARR no episode with that sonarrEpisodeId can be found in database:", str(no))
         jobs_queue.update_job_progress(job_id=job_id, progress_message="Episode not found in database.")
         return
-    elif not len(previously_indexed_subtitles) or \
-            any([not x['embedded_track_id'] for x in previously_indexed_subtitles if not x['path']]):
+
+    previously_indexed_subtitles = get_subtitles(sonarr_episode_id=episode.sonarrEpisodeId)
+
+    if not len(previously_indexed_subtitles) or \
+            any([x['embedded_track_id'] is None for x in previously_indexed_subtitles if not x['path']]):
         # subtitles indexing for this episode might be incomplete, we'll do it again
         store_subtitles(episode.sonarrEpisodeId)
         episode = database.execute(stmt).first()
@@ -131,48 +136,48 @@ def episode_download_subtitles(no, job_id=None, job_sub_function=False, provider
         jobs_queue.update_job_progress(job_id=job_id, progress_message=f"Episode path doesn't exists: {episodePath}")
         raise OSError
 
-    if not providers_list:
+    if providers_list is None:
         providers_list = get_providers()
 
     downloaded_count = 0
-    if providers_list:
-        audio_language_list = get_audio_profile_languages(episode.audio_language)
-        if len(audio_language_list) > 0:
-            audio_language = audio_language_list[0]['name']
-        else:
-            audio_language = 'None'
+    audio_language_list = get_audio_profile_languages(episode.audio_language)
+    if len(audio_language_list) > 0:
+        audio_language = audio_language_list[0]['name']
+    else:
+        audio_language = 'None'
 
-        languages = []
+    languages = [
+        requirement_from_token(language)
+        for language in ast.literal_eval(episode.missing_subtitles or '[]')
+        if language is not None
+    ]
+    can_search = bool(providers_list) or any(
+        language.content_type == 'bilingual' for language in languages
+    )
 
+    if can_search:
         if not job_sub_function and job_id:
             jobs_queue.update_job_progress(job_id=job_id, progress_max=1,
                                            progress_message=f'{episode.title} - S{episode.season:02d}E'
                                                             f'{episode.episode:02d} - {episode.episodeTitle}')
 
-        for language in ast.literal_eval(episode.missing_subtitles):
-            if language is not None:
-                hi_ = "True" if language.endswith(':hi') else "False"
-                forced_ = "True" if language.endswith(':forced') else "False"
-                languages.append((language.split(":")[0], hi_, forced_))
-
-        if languages:
-            for result in generate_subtitles(episodePath,
-                                             languages,
-                                             audio_language,
-                                             str(episode.sceneName),
-                                             episode.title,
-                                             'series',
-                                             episode.profileId,
-                                             check_if_still_required=True,
-                                             job_id=job_id,
-                                             fallback_allowed=fallback_allowed):
-                if result:
-                    if isinstance(result, tuple) and len(result):
-                        result = result[0]
-                    store_subtitles(episode.sonarrEpisodeId)
-                    history_log(1, episode.sonarrSeriesId, episode.sonarrEpisodeId, result)
-                    send_notifications(episode.sonarrSeriesId, episode.sonarrEpisodeId, result.message)
-                    downloaded_count += 1
+        for result in generate_subtitles(episodePath,
+                                         languages,
+                                         audio_language,
+                                         str(episode.sceneName),
+                                         episode.title,
+                                         'series',
+                                         episode.profileId,
+                                         check_if_still_required=True,
+                                         job_id=job_id,
+                                         fallback_allowed=fallback_allowed):
+            if result:
+                if isinstance(result, tuple) and len(result):
+                    result = result[0]
+                store_subtitles(episode.sonarrEpisodeId)
+                history_log(1, episode.sonarrSeriesId, episode.sonarrEpisodeId, result)
+                send_notifications(episode.sonarrSeriesId, episode.sonarrEpisodeId, result.message)
+                downloaded_count += 1
         outcome_msg = (f"{downloaded_count} subtitle(s) downloaded"
                        if downloaded_count else "No subtitles found")
     else:
@@ -185,7 +190,8 @@ def episode_download_subtitles(no, job_id=None, job_sub_function=False, provider
         jobs_queue.update_job_name(job_id=job_id, new_job_name=f"Downloaded missing subtitles for {episode.title}")
 
 
-def episode_download_specific_subtitles(sonarr_series_id, sonarr_episode_id, language, hi, forced, job_id=None):
+def episode_download_specific_subtitles(sonarr_series_id, sonarr_episode_id, language, hi, forced, job_id=None,
+                                        content_type="single", secondary_language=None):
     if not job_id:
         return jobs_queue.add_job_from_function("Searching subtitles", progress_max=1, is_progress=False)
 
@@ -216,12 +222,13 @@ def episode_download_specific_subtitles(sonarr_series_id, sonarr_episode_id, lan
 
     episode_long_title = f'{title} - S{episodeInfo.season:02d}E{episodeInfo.episode:02d} - {episodeInfo.episodeTitle}'
 
-    if hi == 'True':
-        language_str = f'{language}:hi'
-    elif forced == 'True':
-        language_str = f'{language}:forced'
-    else:
-        language_str = language
+    requirement_token = f"{language}:bilingual={secondary_language}" if content_type == "bilingual" else language
+    if forced == "True":
+        requirement_token += ":forced"
+    elif hi == "True":
+        requirement_token += ":hi"
+    requirement = requirement_from_token(requirement_token)
+    language_str = format_requirement_token(requirement)
 
     jobs_queue.update_job_name(job_id=job_id,
                                new_job_name=f"Searching {language_str.upper()} for {episode_long_title}")
@@ -233,7 +240,7 @@ def episode_download_specific_subtitles(sonarr_series_id, sonarr_episode_id, lan
         audio_language = None
 
     try:
-        result = list(generate_subtitles(episodePath, [(language, hi, forced)], audio_language, sceneName,
+        result = list(generate_subtitles(episodePath, [requirement], audio_language, sceneName,
                                          title, 'series', profile_id=get_profile_id(episode_id=sonarr_episode_id),
                                          job_id=job_id))
         if isinstance(result, list) and len(result):

@@ -104,7 +104,13 @@ function ManualSearchView<T extends SupportType>(props: Props<T>) {
         accessorKey: "language",
         cell: ({
           row: {
-            original: { language, hearing_impaired: hi, forced },
+            original: {
+              language,
+              hearing_impaired: hi,
+              forced,
+              content_type,
+              secondary_language,
+            },
           },
         }) => {
           const lang: Language.Info = {
@@ -112,6 +118,8 @@ function ManualSearchView<T extends SupportType>(props: Props<T>) {
             hi: hi === "True",
             forced: forced === "True",
             name: "",
+            content_type,
+            secondary_language,
           };
           return (
             <Badge>

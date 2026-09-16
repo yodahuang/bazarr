@@ -57,6 +57,8 @@ const WantedMoviesView: FunctionComponent = () => {
                         language: item.code2,
                         hi: item.hi,
                         forced: item.forced,
+                        content_type: item.content_type,
+                        secondary_language: item.secondary_language,
                       },
                     });
                   }}

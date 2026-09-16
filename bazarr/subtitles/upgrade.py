@@ -23,6 +23,7 @@ from subtitles.indexer.series import store_subtitles
 from utilities.path_mappings import path_mappings
 from .download import generate_subtitles
 from app.event_handler import event_stream
+from .requirements import SubtitleRequirement, requirement_from_profile_item, requirement_from_token
 
 
 def upgrade_subtitles(wait_for_completion=False):
@@ -119,9 +120,15 @@ def upgrade_episodes_subtitles(job_id=None, wait_for_completion=False):
             logging.info("BAZARR All providers are throttled")
             return
 
-        language, is_forced, is_hi = parse_language_string(episode['language'])
-        if is_hi and not _is_hi_required(language, episode['profileId']):
-            is_hi = 'False'
+        requirement = requirement_from_token(episode['language'])
+        if requirement.hi and not _is_hi_required(requirement.token, episode['profileId']):
+            requirement = SubtitleRequirement(
+                language=requirement.language,
+                forced=requirement.forced,
+                hi=False,
+                content_type=requirement.content_type,
+                secondary_language=requirement.secondary_language,
+            )
 
         audio_language_list = get_audio_profile_languages(episode['audio_language'])
         if len(audio_language_list) > 0:
@@ -130,7 +137,7 @@ def upgrade_episodes_subtitles(job_id=None, wait_for_completion=False):
             audio_language = 'None'
 
         result = list(generate_subtitles(path_mappings.path_replace(episode['video_path']),
-                                         [(language, is_hi, is_forced)],
+                                         [requirement],
                                          audio_language,
                                          str(episode['sceneName']),
                                          episode['seriesTitle'],
@@ -225,9 +232,15 @@ def upgrade_movies_subtitles(job_id=None, wait_for_completion=False):
             logging.info("BAZARR All providers are throttled")
             return
 
-        language, is_forced, is_hi = parse_language_string(movie['language'])
-        if is_hi and not _is_hi_required(language, movie['profileId']):
-            is_hi = 'False'
+        requirement = requirement_from_token(movie['language'])
+        if requirement.hi and not _is_hi_required(requirement.token, movie['profileId']):
+            requirement = SubtitleRequirement(
+                language=requirement.language,
+                forced=requirement.forced,
+                hi=False,
+                content_type=requirement.content_type,
+                secondary_language=requirement.secondary_language,
+            )
 
         audio_language_list = get_audio_profile_languages(movie['audio_language'])
         if len(audio_language_list) > 0:
@@ -236,7 +249,7 @@ def upgrade_movies_subtitles(job_id=None, wait_for_completion=False):
             audio_language = 'None'
 
         result = list(generate_subtitles(path_mappings.path_replace_movie(movie['video_path']),
-                                         [(language, is_hi, is_forced)],
+                                         [requirement],
                                          audio_language,
                                          str(movie['sceneName']),
                                          movie['title'],
@@ -272,20 +285,10 @@ def get_queries_condition_parameters():
 
 
 def parse_language_string(language_string):
-    if language_string.endswith('forced'):
-        language = language_string.split(':')[0]
-        is_forced = "True"
-        is_hi = "False"
-    elif language_string.endswith('hi'):
-        language = language_string.split(':')[0]
-        is_forced = "False"
-        is_hi = "True"
-    else:
-        language = language_string.split(':')[0]
-        is_forced = "False"
-        is_hi = "False"
-
-    return [language, is_forced, is_hi]
+    requirement = requirement_from_token(language_string)
+    return [requirement.language,
+            "True" if requirement.forced else "False",
+            "True" if requirement.hi else "False"]
 
 
 def get_upgradable_episode_subtitles(history_id_list=None):
@@ -466,19 +469,24 @@ def _language_still_desired(language, profile_id):
 def _language_from_items(items):
     results = []
     for item in items:
-        if item['forced'] == 'True':
-            results.append(f'{item["language"]}:forced')
-        elif item['hi'] == 'True':
-            results.append(f'{item["language"]}:hi')
-        else:
-            results.append(item['language'])
-            results.append(f'{item["language"]}:hi')
+        requirement = requirement_from_profile_item(item)
+        results.append(requirement.token)
+        if not requirement.forced and not requirement.hi:
+            results.append(SubtitleRequirement(
+                language=requirement.language,
+                forced=False,
+                hi=True,
+                content_type=requirement.content_type,
+                secondary_language=requirement.secondary_language,
+            ).token)
     return results
 
 
 def _is_hi_required(language, profile_id):
     profile = get_profiles_list(profile_id=profile_id)
+    requirement = requirement_from_token(language)
     for item in profile['items']:
-        if language.split(':')[0] == item['language'] and item['hi'] == 'True':
+        profile_requirement = requirement_from_profile_item(item)
+        if requirement.identity == profile_requirement.identity and profile_requirement.hi:
             return True
     return False

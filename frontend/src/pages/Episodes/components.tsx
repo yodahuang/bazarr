@@ -45,11 +45,21 @@ export const Subtitle: FunctionComponent<Props> = ({
         path: subtitle.path,
         forced: toPython(subtitle.forced),
         hi: toPython(subtitle.hi),
+        content_type: subtitle.content_type,
+        secondary_language: subtitle.secondary_language,
       });
     }
 
     return list;
-  }, [episodeId, subtitle.code2, subtitle.path, subtitle.forced, subtitle.hi]);
+  }, [
+    episodeId,
+    subtitle.code2,
+    subtitle.path,
+    subtitle.forced,
+    subtitle.hi,
+    subtitle.content_type,
+    subtitle.secondary_language,
+  ]);
 
   const ctx = (
     <Badge variant={variant}>
@@ -78,6 +88,8 @@ export const Subtitle: FunctionComponent<Props> = ({
               language: subtitle.code2,
               hi: subtitle.hi,
               forced: subtitle.forced,
+              content_type: subtitle.content_type,
+              secondary_language: subtitle.secondary_language,
             },
           });
         } else if (action === "delete" && subtitle.path) {
@@ -89,6 +101,8 @@ export const Subtitle: FunctionComponent<Props> = ({
               hi: subtitle.hi,
               forced: subtitle.forced,
               path: subtitle.path,
+              content_type: subtitle.content_type,
+              secondary_language: subtitle.secondary_language,
             },
           });
         }

@@ -61,6 +61,8 @@ const MovieDetailView: FunctionComponent = () => {
         language,
         hearing_impaired: hi,
         forced,
+        content_type,
+        secondary_language,
         provider,
         subtitle,
         original_format: originalFormat,
@@ -77,6 +79,8 @@ const MovieDetailView: FunctionComponent = () => {
           subtitle,
           // eslint-disable-next-line camelcase
           original_format: originalFormat,
+          content_type,
+          secondary_language,
         },
       });
     },

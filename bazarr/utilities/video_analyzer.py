@@ -36,7 +36,8 @@ def _handle_alpha3(detected_language: dict):
     return alpha3
 
 
-def embedded_subs_reader(file, file_size, episode_file_id=None, movie_file_id=None, use_cache=True):
+def embedded_subs_reader(file, file_size, episode_file_id=None, movie_file_id=None, use_cache=True,
+                         include_metadata=False):
     data = parse_video_metadata(file, file_size, episode_file_id, movie_file_id, use_cache=use_cache)
     und_default_language = alpha3_from_alpha2(settings.general.default_und_embedded_subtitles_lang)
 
@@ -75,7 +76,10 @@ def embedded_subs_reader(file, file_size, episode_file_id=None, movie_file_id=No
             forced = detected_language.get("forced", False)
             hearing_impaired = detected_language.get("hearing_impaired", False)
             codec = detected_language.get("format")  # or None
-            subtitles_list.append([track_id, language, forced, hearing_impaired, codec])
+            subtitle = [track_id, language, forced, hearing_impaired, codec]
+            if include_metadata:
+                subtitle.append(detected_language.get("name", ""))
+            subtitles_list.append(subtitle)
 
     return subtitles_list
 

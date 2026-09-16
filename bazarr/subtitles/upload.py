@@ -11,7 +11,7 @@ from subliminal_patch.subtitle import Subtitle
 from subliminal_patch.score import MAX_SCORES
 from pysubs2.formats import get_format_identifier
 
-from languages.get_languages import language_from_alpha3, alpha2_from_alpha3, alpha3_from_alpha2
+from languages.get_languages import language_from_alpha2, language_from_alpha3, alpha2_from_alpha3, alpha3_from_alpha2
 from app.config import settings, get_array_from
 from utilities.helper import get_target_folder, force_unicode
 from utilities.post_processing import pp_replace, set_chmod
@@ -30,6 +30,8 @@ from app.notifier import send_notifications_movie
 from subtitles.indexer.series import store_subtitles
 from subtitles.indexer.movies import store_subtitles_movie
 from subtitles.processing import ProcessSubtitlesResult
+from subtitles.requirements import CONTENT_TYPE_BILINGUAL, SubtitleRequirement
+from subtitles.bilingual import save_bilingual_subtitle
 
 from .sync import sync_subtitles
 from .post_processing import postprocessing
@@ -38,7 +40,8 @@ from jellyfin.operations import jellyfin_refresh_item
 
 
 def manual_upload_subtitle(path, language, forced, hi, media_type, subtitle, filename, audio_language, job_id=None,
-                           sonarrSeriesId=None, sonarrEpisodeId=None, radarrId=None):
+                           sonarrSeriesId=None, sonarrEpisodeId=None, radarrId=None, content_type="single",
+                           secondary_language=None):
     if not job_id:
         return jobs_queue.add_job_from_function(f"Uploading {filename}", is_progress=False)
 
@@ -52,7 +55,19 @@ def manual_upload_subtitle(path, language, forced, hi, media_type, subtitle, fil
     chmod = int(settings.general.chmod, 8) if not sys.platform.startswith(
         'win') and settings.general.chmod_enabled else None
 
-    language = alpha3_from_alpha2(language)
+    requirement = SubtitleRequirement(
+        language=language,
+        forced=forced,
+        hi=hi,
+        content_type=content_type,
+        secondary_language=secondary_language,
+    )
+    content_type = requirement.content_type
+    secondary_language = requirement.secondary_language
+    primary_language = requirement.language
+    forced = requirement.forced
+    hi = requirement.hi
+    language = alpha3_from_alpha2(primary_language)
 
     custom = CustomLanguage.from_value(language, "alpha3")
     if custom is None:
@@ -123,16 +138,29 @@ def manual_upload_subtitle(path, language, forced, hi, media_type, subtitle, fil
 
     saved_subtitles = []
     try:
-        # ensure that formats must be a tuple of strings
-        sub_format = (sub.format,) if isinstance(sub.format, str) else sub.format
-        saved_subtitles = save_subtitles(path,
-                                         [sub],
-                                         single=single,
-                                         tags=None,  # fixme
-                                         directory=get_target_folder(path),
-                                         chmod=chmod,
-                                         formats=sub_format if use_original_format else ("srt",),
-                                         path_decoder=force_unicode)
+        if content_type == CONTENT_TYPE_BILINGUAL:
+            sub.content_type = CONTENT_TYPE_BILINGUAL
+            sub.secondary_language = secondary_language
+            saved_path = save_bilingual_subtitle(
+                sub,
+                path,
+                primary_language,
+                secondary_language,
+                directory=get_target_folder(path),
+                chmod=chmod,
+            )
+            saved_subtitles = [sub] if saved_path else []
+        else:
+            # ensure that formats must be a tuple of strings
+            sub_format = (sub.format,) if isinstance(sub.format, str) else sub.format
+            saved_subtitles = save_subtitles(path,
+                                             [sub],
+                                             single=single,
+                                             tags=None,  # fixme
+                                             directory=get_target_folder(path),
+                                             chmod=chmod,
+                                             formats=sub_format if use_original_format else ("srt",),
+                                             path_decoder=force_unicode)
     except Exception as e:
         logging.exception(f'BAZARR Error saving Subtitles file to disk for this file {path}: {repr(e)}')
         return
@@ -158,6 +186,9 @@ def manual_upload_subtitle(path, language, forced, hi, media_type, subtitle, fil
         modifier_code = ""
     uploaded_language_code3 = language + modifier_code
     uploaded_language = language_from_alpha3(language) + modifier_string
+    if content_type == CONTENT_TYPE_BILINGUAL:
+        uploaded_language = (f"{uploaded_language} + "
+                             f"{language_from_alpha2(secondary_language) or secondary_language}")
     uploaded_language_code2 = alpha2_from_alpha3(language) + modifier_code
 
     if use_postprocessing:
@@ -186,8 +217,7 @@ def manual_upload_subtitle(path, language, forced, hi, media_type, subtitle, fil
         event_stream(type='movie', action='update', payload=movie_metadata.radarrId)
         event_stream(type='movie-wanted', action='delete', payload=movie_metadata.radarrId)
 
-    result = ProcessSubtitlesResult(message=f"{language_from_alpha3(language)}{modifier_string} Subtitles manually "
-                                            "uploaded.",
+    result = ProcessSubtitlesResult(message=f"{uploaded_language} subtitles manually uploaded.",
                                     reversed_path=reversed_path,
                                     downloaded_language_code2=uploaded_language_code2,
                                     downloaded_provider=None,
@@ -195,7 +225,9 @@ def manual_upload_subtitle(path, language, forced, hi, media_type, subtitle, fil
                                     forced=None,
                                     subtitle_id=None,
                                     reversed_subtitles_path=reversed_subtitles_path,
-                                    hearing_impaired=None)
+                                    hearing_impaired=None,
+                                    content_type=content_type,
+                                    secondary_language=secondary_language)
 
     if not result:
         logging.debug(f"BAZARR unable to process subtitles for this {'episode' if media_type == 'series' else 'movie'}:"
